@@ -255,12 +255,17 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                           errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
                                         ),
                                 )
-                              : currentCat == CardCategoryType.letters
+                              : (currentCat == CardCategoryType.letters || currentCat == CardCategoryType.numbers)
                                 ? Center(child: FittedBox(
                                     fit: BoxFit.scaleDown,
                                     child: Padding(
                                       padding: const EdgeInsets.all(8.0),
-                                      child: Text(word.toUpperCase(), style: const TextStyle(fontSize: 120, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                                      child: Text(
+                                        currentCat == CardCategoryType.letters 
+                                          ? word.toUpperCase()
+                                          : card.id.replaceFirst('num_', ''), 
+                                        style: const TextStyle(fontSize: 120, fontWeight: FontWeight.bold, color: Colors.blueAccent)
+                                      ),
                                     ),
                                   ))
                                 : const SizedBox.expand(),
@@ -353,13 +358,17 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           children: [
             _BottomBarButton(
               icon: Icons.refresh_rounded,
-              label: currentLang == 'en-US' ? 'Flip All' : 'Odwróć wszystkie',
+              label: currentLang == 'en-US' 
+                ? 'Flip All' 
+                : (currentLang == 'de-DE' ? 'Alles umdrehen' : (currentLang == 'fr-FR' ? 'Tout retourner' : (currentLang == 'uk-UA' ? 'Перевернути все' : 'Odwróć wszystkie'))),
               color: Colors.blueAccent, // Matched color
               onPressed: _resetAllCards,
             ),
             _BottomBarButton(
               icon: Icons.shuffle_rounded,
-              label: currentLang == 'en-US' ? 'Shuffle' : 'Pomieszaj',
+              label: currentLang == 'en-US' 
+                ? 'Shuffle' 
+                : (currentLang == 'de-DE' ? 'Mischen' : (currentLang == 'fr-FR' ? 'Mélanger' : (currentLang == 'uk-UA' ? 'Перемішати' : 'Pomieszaj'))),
               color: Colors.blueAccent,
               onPressed: _shuffleCards,
             ),
@@ -433,12 +442,21 @@ class _LanguageSelector extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currentLang = ref.watch(languageProvider);
 
+    String flagFor(String lang) {
+      if (lang == 'en-US') return '🇬🇧';
+      if (lang == 'pl-PL') return '🇵🇱';
+      if (lang == 'de-DE') return '🇩🇪';
+      if (lang == 'fr-FR') return '🇫🇷';
+      if (lang == 'uk-UA') return '🇺🇦';
+      return '🌍';
+    }
+
     return PopupMenuButton<String>(
       initialValue: currentLang,
       onSelected: (val) => ref.read(languageProvider.notifier).state = val,
       child: Center(
         child: Text(
-          currentLang == 'en-US' ? '🇬🇧' : '🇵🇱',
+          flagFor(currentLang),
           style: const TextStyle(fontSize: 24),
         ),
       ),
@@ -465,6 +483,45 @@ class _LanguageSelector extends ConsumerWidget {
                 Text('🇵🇱', style: TextStyle(fontSize: 18)),
                 SizedBox(width: 8),
                 Text('Polski', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'de-DE',
+          child: SizedBox(
+            width: 150,
+            child: Row(
+              children: [
+                Text('🇩🇪', style: TextStyle(fontSize: 18)),
+                SizedBox(width: 8),
+                Text('Deutsch', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'fr-FR',
+          child: SizedBox(
+            width: 150,
+            child: Row(
+              children: [
+                Text('🇫🇷', style: TextStyle(fontSize: 18)),
+                SizedBox(width: 8),
+                Text('Français', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'uk-UA',
+          child: SizedBox(
+            width: 150,
+            child: Row(
+              children: [
+                Text('🇺🇦', style: TextStyle(fontSize: 18)),
+                SizedBox(width: 8),
+                Text('Українська', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ],
             ),
           ),

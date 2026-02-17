@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'features/game/providers/game_provider.dart';
 import 'features/splash/splash_screen.dart';
 
 void main() {
@@ -11,11 +12,14 @@ void main() {
   );
 }
 
-class BabyEducationApp extends StatelessWidget {
+class BabyEducationApp extends ConsumerWidget {
   const BabyEducationApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentLang = ref.watch(languageProvider);
+    final isUkrainian = currentLang == 'uk-UA';
+
     return MaterialApp(
       title: 'BabyCards',
       debugShowCheckedModeBanner: false,

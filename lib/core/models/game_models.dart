@@ -3,6 +3,8 @@ enum CardCategoryType {
   numbers,
   letters,
   cars,
+  farm,
+  fruits,
 }
 
 class EducationCard {

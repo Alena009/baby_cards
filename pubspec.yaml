@@ -74,6 +74,10 @@ flutter:
   assets:
     - assets/images/numbers/
     - assets/images/cars/
+    - assets/images/farm/
+    - assets/images/fruits/
+    - assets/audio/en/
+    - assets/audio/pl/
     - assets/images/transparent.png
     - assets/images/branding/logo.png
 
