@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BabyCards - Kids Learning</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --sunshine: #FFD93D;
+            --coral: #FF6B6B;
+            --sky: #4ECDC4;
+            --lavender: #A78BFA;
+            --peach: #FFEAA7;
+            --mint: #DFE6E9;
+            --dark: #2D3436;
+            --white: #FEFEFE;
+        }
+
+        body {
+            font-family: 'Nunito', sans-serif;
+            background: var(--white);
+            color: var(--dark);
+            overflow-x: hidden;
+        }
+
+        /* Floating shapes background */
+        .bg-shapes {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+
+        .shape {
+            position: absolute;
+            border-radius: 50%;
+            opacity: 0.12;
+            animation: floaty 20s ease-in-out infinite;
+        }
+
+        .shape:nth-child(1) {
+            width: 300px; height: 300px;
+            background: var(--coral);
+            top: -50px; left: -80px;
+            animation-delay: 0s;
+        }
+        .shape:nth-child(2) {
+            width: 200px; height: 200px;
+            background: var(--sky);
+            top: 30%; right: -60px;
+            animation-delay: -5s;
+            animation-duration: 25s;
+        }
+        .shape:nth-child(3) {
+            width: 250px; height: 250px;
+            background: var(--sunshine);
+            bottom: 10%; left: 5%;
+            animation-delay: -10s;
+            animation-duration: 22s;
+        }
+        .shape:nth-child(4) {
+            width: 180px; height: 180px;
+            background: var(--lavender);
+            top: 60%; right: 15%;
+            animation-delay: -7s;
+        }
+        .shape:nth-child(5) {
+            width: 120px; height: 120px;
+            background: var(--sky);
+            top: 15%; left: 40%;
+            animation-delay: -3s;
+            animation-duration: 18s;
+        }
+
+        @keyframes floaty {
+            0%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            25% { transform: translate(30px, -20px) rotate(5deg) scale(1.05); }
+            50% { transform: translate(-20px, 20px) rotate(-3deg) scale(0.95); }
+            75% { transform: translate(15px, 10px) rotate(4deg) scale(1.02); }
+        }
+
+        .content {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Hero */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 40px 24px;
+        }
+
+        .app-icon {
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, var(--sky), var(--lavender));
+            border-radius: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 56px;
+            margin-bottom: 32px;
+            box-shadow: 0 12px 40px rgba(78, 205, 196, 0.3);
+            animation: popIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+
+        h1 {
+            font-family: 'Baloo 2', cursive;
+            font-size: clamp(2.5rem, 6vw, 4rem);
+            font-weight: 800;
+            color: var(--dark);
+            line-height: 1.1;
+            margin-bottom: 8px;
+            animation: popIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+        }
+
+        h1 span {
+            background: linear-gradient(135deg, var(--coral), var(--lavender));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: clamp(1.1rem, 2.5vw, 1.4rem);
+            color: #636e72;
+            font-weight: 600;
+            margin-bottom: 36px;
+            animation: popIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both;
+        }
+
+        .app-store-badge {
+            animation: popIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both;
+        }
+
+        .app-store-badge img {
+            height: 54px;
+            transition: transform 0.2s ease;
+        }
+
+        .app-store-badge img:hover {
+            transform: scale(1.05);
+        }
+
+        @keyframes popIn {
+            from { opacity: 0; transform: translateY(24px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Features */
+        .features {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 24px 80px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: white;
+            border-radius: 20px;
+            padding: 32px 24px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .feature-icon {
+            font-size: 42px;
+            margin-bottom: 16px;
+            display: block;
+        }
+
+        .feature-card h3 {
+            font-family: 'Baloo 2', cursive;
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--dark);
+        }
+
+        .feature-card p {
+            font-size: 0.95rem;
+            color: #636e72;
+            line-height: 1.5;
+        }
+
+        /* Languages */
+        .languages {
+            text-align: center;
+            padding: 40px 24px 80px;
+        }
+
+        .languages h2 {
+            font-family: 'Baloo 2', cursive;
+            font-size: clamp(1.8rem, 4vw, 2.4rem);
+            font-weight: 700;
+            margin-bottom: 32px;
+        }
+
+        .lang-pills {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .lang-pill {
+            background: white;
+            border-radius: 50px;
+            padding: 12px 24px;
+            font-weight: 700;
+            font-size: 1rem;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: transform 0.2s ease;
+        }
+
+        .lang-pill:hover {
+            transform: scale(1.05);
+        }
+
+        .lang-pill .flag {
+            font-size: 1.3rem;
+        }
+
+        /* Footer / Contact */
+        .footer {
+            text-align: center;
+            padding: 40px 24px 60px;
+            background: linear-gradient(180deg, transparent, rgba(78, 205, 196, 0.06));
+        }
+
+        .footer h2 {
+            font-family: 'Baloo 2', cursive;
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .footer a {
+            color: var(--sky);
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.1rem;
+            transition: color 0.2s;
+        }
+
+        .footer a:hover {
+            color: var(--coral);
+        }
+
+        .footer .copyright {
+            margin-top: 32px;
+            font-size: 0.85rem;
+            color: #b2bec3;
+        }
+
+        @media (max-width: 600px) {
+            .features {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-shapes">
+        <div class="shape"></div>
+        <div class="shape"></div>
+        <div class="shape"></div>
+        <div class="shape"></div>
+        <div class="shape"></div>
+    </div>
+
+    <div class="content">
+        <section class="hero">
+            <div class="app-icon">🧒</div>
+            <h1>Baby<span>Cards</span></h1>
+            <p class="subtitle">Fun flashcards for little learners</p>
+            <!-- Replace # with your App Store link once published -->
+            <a class="app-store-badge" href="#" aria-label="Download on the App Store">
+                <img src="https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg" alt="Download on the App Store">
+            </a>
+        </section>
+
+        <section class="features">
+            <div class="feature-card">
+                <span class="feature-icon">🎨</span>
+                <h3>Beautiful Cards</h3>
+                <p>Colorful illustrated flashcards that capture your child's attention and imagination.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">🔊</span>
+                <h3>Audio Pronunciation</h3>
+                <p>Hear every word pronounced clearly to build vocabulary and language skills.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">🧩</span>
+                <h3>Quiz Mode</h3>
+                <p>Test and reinforce learning with fun interactive quizzes.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">🌍</span>
+                <h3>5 Languages</h3>
+                <p>Learn in English, Polish, German, French, and Ukrainian.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">👶</span>
+                <h3>Kid-Friendly</h3>
+                <p>Simple, intuitive interface designed for small hands. No ads.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">📚</span>
+                <h3>Rich Content</h3>
+                <p>Animals, letters, numbers, and everyday objects to discover.</p>
+            </div>
+        </section>
+
+        <section class="languages">
+            <h2>Available Languages</h2>
+            <div class="lang-pills">
+                <div class="lang-pill"><span class="flag">🇬🇧</span> English</div>
+                <div class="lang-pill"><span class="flag">🇵🇱</span> Polish</div>
+                <div class="lang-pill"><span class="flag">🇩🇪</span> German</div>
+                <div class="lang-pill"><span class="flag">🇫🇷</span> French</div>
+                <div class="lang-pill"><span class="flag">🇺🇦</span> Ukrainian</div>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <h2>Contact & Support</h2>
+            <!-- Replace with your actual email -->
+            <a href="mailto:your-email@example.com">your-email@example.com</a>
+            <p class="copyright">&copy; 2025 BabyCards. All rights reserved.</p>
+        </footer>
+    </div>
+</body>
+</html>
