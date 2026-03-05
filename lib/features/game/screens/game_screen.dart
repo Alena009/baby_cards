@@ -20,6 +20,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   List<EducationCard> _shuffledCards = [];
   CardCategoryType? _lastCategory;
   bool _isWandActive = false;
+  final List<GlobalKey> _categoryKeys = [];
+  int? _zoomedCardIndex;
 
   @override
   void initState() {
@@ -59,18 +61,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 
   void _scrollToCategory(int index) {
-    if (_categoryScrollController.hasClients) {
-      const itemWidth = 110.0;
-      final viewportWidth = _categoryScrollController.position.viewportDimension;
-      
-      // Center the item in the list to reveal items on both sides if they exist
-      final targetOffset = (index * itemWidth) - (viewportWidth / 2) + (itemWidth / 2);
-      
-      _categoryScrollController.animateTo(
-        targetOffset.clamp(0.0, _categoryScrollController.position.maxScrollExtent),
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+    if (index >= 0 && index < _categoryKeys.length) {
+      final key = _categoryKeys[index];
+      if (key.currentContext != null) {
+        Scrollable.ensureVisible(
+          key.currentContext!,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+        );
+      }
     }
   }
 
@@ -115,6 +115,12 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       cardPages.add(_shuffledCards.sublist(i, i + cardsPerPage > _shuffledCards.length ? _shuffledCards.length : i + cardsPerPage));
     }
 
+    // Maintain category keys
+    if (_categoryKeys.length != categories.length) {
+      _categoryKeys.clear();
+      _categoryKeys.addAll(List.generate(categories.length, (_) => GlobalKey()));
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFE1F5FE),
       appBar: PreferredSize(
@@ -149,46 +155,61 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           _isWandActive ? _MagicWandEffect() : const SizedBox.shrink(),
           Column(
             children: [
-          // Category Selector
+          // Category Selector with horizontal fade
           Container(
             height: 70,
             padding: const EdgeInsets.symmetric(vertical: 4),
-            child: ListView.builder(
-              controller: _categoryScrollController,
-              scrollDirection: Axis.horizontal,
-              itemCount: categories.length,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemBuilder: (context, index) {
-                final cat = categories[index];
-                final isSelected = cat.type == currentCat;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text('${cat.icon} ${cat.name}', 
-                      style: GoogleFonts.rubikBubbles(
-                        color: isSelected ? Colors.white : Colors.blueAccent,
-                        fontWeight: FontWeight.normal,
-                        fontSize: 18,
-                        letterSpacing: 0.5,
-                        shadows: isSelected ? [] : [
-                          const Shadow(color: Colors.white, offset: Offset(-1, -1), blurRadius: 2),
-                        ],
-                      ),
-                    ),
-                    selected: isSelected,
-                    onSelected: (_) {
-                      _resetAllCards();
-                      _scrollToCategory(index);
-                      if (_pageController.hasClients) _pageController.jumpToPage(0);
-                      ref.read(currentCategoryProvider.notifier).state = cat.type;
-                    },
-                    backgroundColor: Colors.white,
-                    selectedColor: Colors.blueAccent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    showCheckmark: false,
-                  ),
-                );
+            child: ShaderMask(
+              shaderCallback: (Rect bounds) {
+                return const LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [Colors.white, Colors.transparent, Colors.transparent, Colors.white],
+                  stops: [0.0, 0.05, 0.95, 1.0],
+                ).createShader(bounds);
               },
+              blendMode: BlendMode.dstOut,
+              child: SingleChildScrollView(
+                controller: _categoryScrollController,
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: List.generate(categories.length, (index) {
+                    final cat = categories[index];
+                    final isSelected = cat.type == currentCat;
+                    return Padding(
+                      key: _categoryKeys[index],
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text('${cat.icon} ${cat.name}', 
+                          style: GoogleFonts.rubikBubbles(
+                            color: isSelected ? Colors.white : Colors.blueAccent,
+                            fontWeight: FontWeight.normal,
+                            fontSize: 18,
+                            letterSpacing: 0.5,
+                            shadows: isSelected ? [] : [
+                              const Shadow(color: Colors.white, offset: Offset(-1, -1), blurRadius: 2),
+                            ],
+                          ),
+                        ),
+                        selected: isSelected,
+                        onSelected: (_) {
+                          setState(() => _zoomedCardIndex = null);
+                          _resetAllCards();
+                          _scrollToCategory(index);
+                          if (_pageController.hasClients) _pageController.jumpToPage(0);
+                          ref.read(currentCategoryProvider.notifier).state = cat.type;
+                        },
+                        backgroundColor: Colors.white,
+                        selectedColor: Colors.blueAccent,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        showCheckmark: false,
+                      ),
+                    );
+                  }),
+                ),
+              ),
             ),
           ),
           
@@ -214,7 +235,99 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                   itemCount: cardPages.length,
                   itemBuilder: (context, pageIndex) {
                     final pageCards = cardPages[pageIndex];
-                    
+                    final int firstGlobalIndex = (pageIndex * cardsPerPage).toInt();
+                    final int lastGlobalIndex = firstGlobalIndex + pageCards.length - 1;
+
+                    // Check if the current page contains the zoomed card
+                    final bool isCardZoomedOnThisPage = _zoomedCardIndex != null && 
+                        _zoomedCardIndex! >= firstGlobalIndex && 
+                        _zoomedCardIndex! <= lastGlobalIndex;
+
+                    if (isCardZoomedOnThisPage) {
+                      final zoomedIndexInPage = _zoomedCardIndex! - firstGlobalIndex;
+                      final card = pageCards[zoomedIndexInPage];
+                      final word = card.transcriptions[currentLang] ?? 'Unknown';
+                      final cardColor = card.hexColor != null 
+                          ? Color(int.parse(card.hexColor!)) 
+                          : Colors.white;
+
+                      return Padding(
+                        padding: const EdgeInsets.all(spacing),
+                        child: Hero(
+                          tag: 'card_${card.id}_$_zoomedCardIndex',
+                          child: FlipCard(
+                            key: ValueKey('flip_card_$_zoomedCardIndex'),
+                            controller: _cardControllers[_zoomedCardIndex!],
+                            onFlip: () {
+                              ref.read(audioServiceProvider).speak(word, currentLang);
+                            },
+                            onDoubleTap: () {
+                              setState(() => _zoomedCardIndex = null);
+                            },
+                            front: _CardBody(
+                              color: cardColor,
+                              child: card.imageUrl != null 
+                                ? Padding(
+                                    padding: const EdgeInsets.all(40),
+                                    child: card.imageUrl!.startsWith('http')
+                                        ? Image.network(
+                                            card.imageUrl!, 
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
+                                          )
+                                        : Image.asset(
+                                            card.imageUrl!, 
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
+                                          ),
+                                  )
+                                : (currentCat == CardCategoryType.letters || currentCat == CardCategoryType.numbers)
+                                  ? Center(child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(16.0),
+                                        child: Text(
+                                          currentCat == CardCategoryType.letters 
+                                            ? word.toUpperCase()
+                                            : card.id.replaceFirst('num_', ''), 
+                                          style: const TextStyle(fontSize: 400, fontWeight: FontWeight.bold, color: Colors.blueAccent)
+                                        ),
+                                      ),
+                                    ))
+                                  : const SizedBox.expand(),
+                            ),
+                            back: _CardBody(
+                              color: Colors.blueAccent.withValues(alpha: 0.1),
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      word.toUpperCase(),
+                                      textAlign: TextAlign.center,
+                                      style: currentCat == CardCategoryType.letters
+                                          ? const TextStyle(
+                                              fontFamily: 'GreatVibes',
+                                              fontSize: 240,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blueAccent,
+                                            )
+                                          : const TextStyle(
+                                              fontSize: 160,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blueAccent,
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+
                     return GridView.builder(
                       padding: const EdgeInsets.all(spacing),
                       physics: const NeverScrollableScrollPhysics(),
@@ -233,65 +346,72 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             ? Color(int.parse(card.hexColor!)) 
                             : Colors.white;
 
-                        return FlipCard(
-                          controller: _cardControllers[globalIndex],
-                          onFlip: () {
-                            ref.read(audioServiceProvider).speak(word, currentLang);
-                          },
-                          front: _CardBody(
-                            color: cardColor,
-                            child: card.imageUrl != null 
-                              ? Padding(
-                                  padding: const EdgeInsets.all(20),
-                                  child: card.imageUrl!.startsWith('http')
-                                      ? Image.network(
-                                          card.imageUrl!, 
-                                          fit: BoxFit.contain,
-                                          errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
-                                        )
-                                      : Image.asset(
-                                          card.imageUrl!, 
-                                          fit: BoxFit.contain,
-                                          errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
-                                        ),
-                                )
-                              : (currentCat == CardCategoryType.letters || currentCat == CardCategoryType.numbers)
-                                ? Center(child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(8.0),
-                                      child: Text(
-                                        currentCat == CardCategoryType.letters 
-                                          ? word.toUpperCase()
-                                          : card.id.replaceFirst('num_', ''), 
-                                        style: const TextStyle(fontSize: 120, fontWeight: FontWeight.bold, color: Colors.blueAccent)
-                                      ),
-                                    ),
-                                  ))
-                                : const SizedBox.expand(),
-                          ),
-                          back: _CardBody(
-                            color: Colors.blueAccent.withValues(alpha: 0.1),
-                            child: Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    word.toUpperCase(),
-                                    textAlign: TextAlign.center,
-                                    style: currentCat == CardCategoryType.letters
-                                        ? const TextStyle(
-                                            fontFamily: 'GreatVibes',
-                                            fontSize: 80,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.blueAccent,
+                        return Hero(
+                          tag: 'card_${card.id}_$globalIndex',
+                          child: FlipCard(
+                            key: ValueKey('flip_card_$globalIndex'),
+                            controller: _cardControllers[globalIndex],
+                            onFlip: () {
+                              ref.read(audioServiceProvider).speak(word, currentLang);
+                            },
+                            onDoubleTap: () {
+                              setState(() => _zoomedCardIndex = globalIndex);
+                            },
+                            front: _CardBody(
+                              color: cardColor,
+                              child: card.imageUrl != null 
+                                ? Padding(
+                                    padding: const EdgeInsets.all(20),
+                                    child: card.imageUrl!.startsWith('http')
+                                        ? Image.network(
+                                            card.imageUrl!, 
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
                                           )
-                                        : const TextStyle(
-                                            fontSize: 40,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.blueAccent,
+                                        : Image.asset(
+                                            card.imageUrl!, 
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
                                           ),
+                                  )
+                                : (currentCat == CardCategoryType.letters || currentCat == CardCategoryType.numbers)
+                                  ? Center(child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(8.0),
+                                        child: Text(
+                                          currentCat == CardCategoryType.letters 
+                                            ? word.toUpperCase()
+                                            : card.id.replaceFirst('num_', ''), 
+                                          style: const TextStyle(fontSize: 240, fontWeight: FontWeight.bold, color: Colors.blueAccent)
+                                        ),
+                                      ),
+                                    ))
+                                  : const SizedBox.expand(),
+                            ),
+                            back: _CardBody(
+                              color: Colors.blueAccent.withValues(alpha: 0.1),
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      word.toUpperCase(),
+                                      textAlign: TextAlign.center,
+                                      style: currentCat == CardCategoryType.letters
+                                          ? const TextStyle(
+                                              fontFamily: 'GreatVibes',
+                                              fontSize: 160,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blueAccent,
+                                            )
+                                          : const TextStyle(
+                                              fontSize: 100,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blueAccent,
+                                            ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -339,8 +459,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             ),
           ],
         ),
-      ],
-    ),
+        ],
+      ),
       bottomNavigationBar: Container(
         height: 80,
         decoration: BoxDecoration(

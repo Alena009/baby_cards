@@ -11,9 +11,8 @@ class AudioService {
   final Map<String, Map<String, String>> _bestVoices = {};
   bool isMuted = false;
 
-  Future<void> _initTts() async {
+  void _initTts() async {
     await _flutterTts.setVolume(1.0);
-    // Reverted to natural, standard pitch
     await _flutterTts.setPitch(1.0); 
     await _flutterTts.setSpeechRate(0.5);
     
@@ -145,57 +144,31 @@ class AudioService {
 
     // Try playing local audio file first
     try {
-      // 1. Sanitize text for filename
-      // Remove accents/diacritics for normalization if needed, but simple replacement is safer for now
-      // We will strip special chars but keep standard letters/numbers
-      
       String normalized = text.toLowerCase().trim();
       
-      // Manual mapping for common Polish/Ukrainian chars if they were used in filename
-      normalized = normalized
-          .replaceAll('ą', 'a')
-          .replaceAll('ć', 'c')
-          .replaceAll('ę', 'e')
-          .replaceAll('ł', 'l')
-          .replaceAll('ń', 'n')
-          .replaceAll('ó', 'o')
-          .replaceAll('ś', 's')
-          .replaceAll('ź', 'z')
-          .replaceAll('ż', 'z')
-          .replaceAll('є', 'ye')
-          .replaceAll('і', 'i')
-          .replaceAll('ї', 'yi')
-          .replaceAll('ґ', 'g');
-          
+      // We only replace spaces with underscores and remove characters that are invalid in filenames
+      // but we KEEP Cyrillic, Umlauts, and Accents as the user uses them.
       final String filename = normalized
           .replaceAll(' ', '_')
-          .replaceAll(RegExp(r'[^\w\s_]'), ''); 
+          .replaceAll(RegExp(r'[\\/:*?"<>|]'), ''); // Remove ONLY forbidden filename characters
       
-      final String langDir = languageCode.split('-')[0]; // en, pl, or uk
+      final String langDir = languageCode.split('-')[0];
       final String path = 'audio/$langDir/$filename.wav';
 
-      print('AudioService: Looking for file at assets/$path');
-      
       await _effectPlayer.play(AssetSource(path));
-      print('AudioService: Playing custom file: $path');
       return; 
     } catch (e) {
-      print("AudioService: Error playing local file (fallback to TTS): $e");
+      // Fallback to TTS handled below
     }
 
     if (_bestVoices[languageCode] == null) await _findBestVoices();
-
     await _flutterTts.setLanguage(languageCode);
-    await _flutterTts.setPitch(1.0); // Reset to standard
+    await _flutterTts.setPitch(1.0);
 
     if (Platform.isIOS && _bestVoices.containsKey(languageCode)) {
       final voice = _bestVoices[languageCode]!;
-      await _flutterTts.setVoice({
-        "name": voice["name"]!, 
-        "locale": voice["locale"]!
-      });
+      await _flutterTts.setVoice({"name": voice["name"]!, "locale": voice["locale"]!});
     }
-
     await _flutterTts.speak(text);
   }
 
@@ -203,10 +176,8 @@ class AudioService {
     if (isMuted) return;
     String url = '';
     if (effect == 'whoosh') {
-      // Alternative whoosh sound
       url = 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3';
     } else if (effect == 'magic') {
-      // Softer bubbles/pop sound
       url = 'https://assets.mixkit.co/active_storage/sfx/2043/2043-preview.mp3';
     }
     

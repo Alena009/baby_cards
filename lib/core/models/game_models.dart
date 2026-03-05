@@ -5,6 +5,11 @@ enum CardCategoryType {
   cars,
   farm,
   fruits,
+  wildAnimals,
+  body,
+  clothes,
+  vegetables,
+  weather,
 }
 
 class EducationCard {
