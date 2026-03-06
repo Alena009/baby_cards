@@ -81,6 +81,10 @@ flutter:
     - assets/images/clothes/
     - assets/images/weather/
     - assets/images/vegetables/
+    - assets/images/shapes/
+    - assets/images/sea_animals/
+    - assets/images/kitchen/
+    - assets/images/emotions/
     - assets/audio/en/
     - assets/audio/pl/
     - assets/audio/de/

@@ -10,6 +10,10 @@ enum CardCategoryType {
   clothes,
   vegetables,
   weather,
+  shapes,
+  seaAnimals,
+  kitchen,
+  emotions,
 }
 
 class EducationCard {
