@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:baby_education/core/models/game_models.dart';
 import 'dart:math' as math;
+import 'package:confetti/confetti.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../providers/game_provider.dart';
 import '../widgets/flip_card.dart';
 
@@ -14,7 +16,10 @@ class GameScreen extends ConsumerStatefulWidget {
 }
 
 class _GameScreenState extends ConsumerState<GameScreen> {
-  final List<FlipCardController> _cardControllers = List.generate(200, (_) => FlipCardController());
+  final List<FlipCardController> _cardControllers = List.generate(
+    200,
+    (_) => FlipCardController(),
+  );
   late PageController _pageController;
   late ScrollController _categoryScrollController;
   List<EducationCard> _shuffledCards = [];
@@ -22,6 +27,15 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   bool _isWandActive = false;
   final List<GlobalKey> _categoryKeys = [];
   int? _zoomedCardIndex;
+
+  // ----- Quiz State -----
+  String? _quizTargetCardId;
+  late final List<ConfettiController> _confettiControllers = List.generate(
+    200,
+    (_) => ConfettiController(duration: const Duration(seconds: 2)),
+  );
+  final AudioPlayer _quizAudioPlayer = AudioPlayer();
+  // ----------------------
 
   @override
   void initState() {
@@ -34,6 +48,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   void dispose() {
     _pageController.dispose();
     _categoryScrollController.dispose();
+    for (final c in _confettiControllers) {
+      c.dispose();
+    }
+    _quizAudioPlayer.dispose();
     super.dispose();
   }
 
@@ -51,13 +69,109 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       _shuffledCards.shuffle();
       _isWandActive = true;
     });
-    
+
     ref.read(audioServiceProvider).playEffect('magic');
     _resetAllCards();
-    
+
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (mounted) setState(() => _isWandActive = false);
     });
+  }
+
+  void _startQuiz() async {
+    if (_shuffledCards.isEmpty || !mounted) return;
+
+    // 1. Determine active cards on current page
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final int cardsPerPage = (isLandscape ? 3 : 2) * (isLandscape ? 1 : 2);
+
+    int pageIndex = 0;
+    if (_pageController.hasClients) {
+      pageIndex = _pageController.page?.round() ?? 0;
+    }
+
+    final int startIndex = pageIndex * cardsPerPage;
+    final int endIndex = math.min(
+      startIndex + cardsPerPage,
+      _shuffledCards.length,
+    );
+    final activeCards = _shuffledCards.sublist(startIndex, endIndex);
+
+    if (activeCards.isEmpty) return;
+
+    // Reset currently visible cards to front (image) side
+    for (int i = startIndex; i < endIndex; i++) {
+      _cardControllers[i].reset();
+    }
+
+    // 2. Pick a random target card
+    final targetCard = activeCards[math.Random().nextInt(activeCards.length)];
+    setState(() {
+      _quizTargetCardId = targetCard.id;
+    });
+
+    // 3. Play question audio sequence
+    final currentLang = ref.read(languageProvider);
+    final langPrefix = currentLang.split(
+      '-',
+    )[0]; // simple code: en, pl, de, fr, uk
+
+    final questionFiles = <String, String>{
+      'en': 'where_is.wav',
+      'pl': 'gdzie_jest.wav',
+      'de': 'wo_ist.wav',
+      'fr': 'où_est.wav',
+      'uk': 'де.wav',
+    };
+
+    final questionFilename = questionFiles[langPrefix] ?? 'where_is.wav';
+
+    try {
+      // Play "Where is"
+      await _quizAudioPlayer.play(
+        AssetSource('audio/$langPrefix/$questionFilename'),
+      );
+
+      // Wait for completion, then play the target word
+      _quizAudioPlayer.onPlayerComplete.first.then((_) {
+        if (!mounted || _quizTargetCardId != targetCard.id) return;
+        final word = targetCard.transcriptions[currentLang] ?? '';
+        ref.read(audioServiceProvider).speak(word, currentLang);
+      });
+    } catch (e) {
+      debugPrint("Error playing quiz audio: $e");
+    }
+  }
+
+  void _onCardTapped(
+    int globalIndex,
+    EducationCard card,
+    String word,
+    String currentLang,
+  ) {
+    // Standard Flip logic
+    _cardControllers[globalIndex].flip();
+
+    // If not in quiz mode, just read the word
+    if (_quizTargetCardId == null) {
+      ref.read(audioServiceProvider).speak(word, currentLang);
+      return;
+    }
+
+    // Quiz mode logic
+    if (card.id == _quizTargetCardId) {
+      // Correct!
+      _quizAudioPlayer.play(AssetSource('audio/correct.mp3'));
+      _confettiControllers[globalIndex].play();
+      setState(() {
+        // Reset target so they can ask again
+        _quizTargetCardId = null;
+      });
+    } else {
+      // Wrong!
+      _quizAudioPlayer.play(AssetSource('audio/wrong.mp3'));
+    }
   }
 
   void _scrollToCategory(int index) {
@@ -81,19 +195,20 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final categories = ref.watch(categoriesProvider);
     final currentCat = ref.watch(currentCategoryProvider);
     final isMuted = ref.watch(isMutedProvider);
-    
+
     // Sync audio service state
     ref.read(audioServiceProvider).isMuted = isMuted;
 
     final isTablet = MediaQuery.of(context).size.shortestSide > 600;
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-    
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+
     // Unified logic for all devices:
     // Vertical (Portrait): 4 cards total (2x2)
     // Horizontal (Landscape): 3 cards total (3x1)
     final int crossCount;
     final int rowCount;
-    
+
     if (isLandscape) {
       crossCount = 3;
       rowCount = 1;
@@ -101,9 +216,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       crossCount = 2;
       rowCount = 2;
     }
-    
+
     final int cardsPerPage = crossCount * rowCount;
-    
+
     // Sync shuffled cards with provider cards
     if (_lastCategory != currentCat || _shuffledCards.length != cards.length) {
       _shuffledCards = List.from(cards);
@@ -112,13 +227,22 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
     final List<List<EducationCard>> cardPages = [];
     for (var i = 0; i < _shuffledCards.length; i += cardsPerPage) {
-      cardPages.add(_shuffledCards.sublist(i, i + cardsPerPage > _shuffledCards.length ? _shuffledCards.length : i + cardsPerPage));
+      cardPages.add(
+        _shuffledCards.sublist(
+          i,
+          i + cardsPerPage > _shuffledCards.length
+              ? _shuffledCards.length
+              : i + cardsPerPage,
+        ),
+      );
     }
 
     // Maintain category keys
     if (_categoryKeys.length != categories.length) {
       _categoryKeys.clear();
-      _categoryKeys.addAll(List.generate(categories.length, (_) => GlobalKey()));
+      _categoryKeys.addAll(
+        List.generate(categories.length, (_) => GlobalKey()),
+      );
     }
 
     return Scaffold(
@@ -138,10 +262,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               fit: BoxFit.contain,
             ),
           ),
-          leading: Transform.scale(
-            scale: 1.5,
-            child: _LanguageSelector(),
-          ),
+          leading: Transform.scale(scale: 1.5, child: _LanguageSelector()),
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 8.0, top: 8.0),
@@ -155,310 +276,490 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           _isWandActive ? _MagicWandEffect() : const SizedBox.shrink(),
           Column(
             children: [
-          // Category Selector with horizontal fade
-          Container(
-            height: 70,
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: ShaderMask(
-              shaderCallback: (Rect bounds) {
-                return const LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: [Colors.white, Colors.transparent, Colors.transparent, Colors.white],
-                  stops: [0.0, 0.05, 0.95, 1.0],
-                ).createShader(bounds);
-              },
-              blendMode: BlendMode.dstOut,
-              child: SingleChildScrollView(
-                controller: _categoryScrollController,
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: List.generate(categories.length, (index) {
-                    final cat = categories[index];
-                    final isSelected = cat.type == currentCat;
-                    return Padding(
-                      key: _categoryKeys[index],
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text('${cat.icon} ${cat.name}', 
-                          style: GoogleFonts.rubikBubbles(
-                            color: isSelected ? Colors.white : Colors.blueAccent,
-                            fontWeight: FontWeight.normal,
-                            fontSize: 18,
-                            letterSpacing: 0.5,
-                            shadows: isSelected ? [] : [
-                              const Shadow(color: Colors.white, offset: Offset(-1, -1), blurRadius: 2),
-                            ],
+              // Category Selector with horizontal fade
+              Container(
+                height: 70,
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: ShaderMask(
+                  shaderCallback: (Rect bounds) {
+                    return const LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        Colors.white,
+                        Colors.transparent,
+                        Colors.transparent,
+                        Colors.white,
+                      ],
+                      stops: [0.0, 0.05, 0.95, 1.0],
+                    ).createShader(bounds);
+                  },
+                  blendMode: BlendMode.dstOut,
+                  child: SingleChildScrollView(
+                    controller: _categoryScrollController,
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: List.generate(categories.length, (index) {
+                        final cat = categories[index];
+                        final isSelected = cat.type == currentCat;
+                        return Padding(
+                          key: _categoryKeys[index],
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(
+                              '${cat.icon} ${cat.name}',
+                              style: GoogleFonts.rubikBubbles(
+                                color: isSelected
+                                    ? Colors.white
+                                    : Colors.blueAccent,
+                                fontWeight: FontWeight.normal,
+                                fontSize: 18,
+                                letterSpacing: 0.5,
+                                shadows: isSelected
+                                    ? []
+                                    : [
+                                        const Shadow(
+                                          color: Colors.white,
+                                          offset: Offset(-1, -1),
+                                          blurRadius: 2,
+                                        ),
+                                      ],
+                              ),
+                            ),
+                            selected: isSelected,
+                            onSelected: (_) {
+                              setState(() => _zoomedCardIndex = null);
+                              _resetAllCards();
+                              _scrollToCategory(index);
+                              if (_pageController.hasClients)
+                                _pageController.jumpToPage(0);
+                              ref.read(currentCategoryProvider.notifier).state =
+                                  cat.type;
+                            },
+                            backgroundColor: Colors.white,
+                            selectedColor: Colors.blueAccent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            showCheckmark: false,
                           ),
-                        ),
-                        selected: isSelected,
-                        onSelected: (_) {
-                          setState(() => _zoomedCardIndex = null);
-                          _resetAllCards();
-                          _scrollToCategory(index);
-                          if (_pageController.hasClients) _pageController.jumpToPage(0);
-                          ref.read(currentCategoryProvider.notifier).state = cat.type;
-                        },
-                        backgroundColor: Colors.white,
-                        selectedColor: Colors.blueAccent,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                        showCheckmark: false,
-                      ),
-                    );
-                  }),
+                        );
+                      }),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // Use the counts calculated above at the build level
-                final activeCrossCount = crossCount;
-                final activeRowCount = rowCount;
-                
-                // Calculate spacing
-                const spacing = 12.0;
-                final totalHorizontalSpacing = spacing * (activeCrossCount + 1);
-                final totalVerticalSpacing = spacing * (activeRowCount + 1);
-                
-                // Calculate item dimensions to fill the space exactly
-                final itemWidth = (constraints.maxWidth - totalHorizontalSpacing) / activeCrossCount;
-                final itemHeight = (constraints.maxHeight - totalVerticalSpacing) / activeRowCount;
-                final calculatedAspectRatio = itemWidth / itemHeight;
 
-                return PageView.builder(
-                  controller: _pageController,
-                  itemCount: cardPages.length,
-                  itemBuilder: (context, pageIndex) {
-                    final pageCards = cardPages[pageIndex];
-                    final int firstGlobalIndex = (pageIndex * cardsPerPage).toInt();
-                    final int lastGlobalIndex = firstGlobalIndex + pageCards.length - 1;
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Use the counts calculated above at the build level
+                    final activeCrossCount = crossCount;
+                    final activeRowCount = rowCount;
 
-                    // Check if the current page contains the zoomed card
-                    final bool isCardZoomedOnThisPage = _zoomedCardIndex != null && 
-                        _zoomedCardIndex! >= firstGlobalIndex && 
-                        _zoomedCardIndex! <= lastGlobalIndex;
+                    // Calculate spacing
+                    const spacing = 12.0;
+                    final totalHorizontalSpacing =
+                        spacing * (activeCrossCount + 1);
+                    final totalVerticalSpacing = spacing * (activeRowCount + 1);
 
-                    if (isCardZoomedOnThisPage) {
-                      final zoomedIndexInPage = _zoomedCardIndex! - firstGlobalIndex;
-                      final card = pageCards[zoomedIndexInPage];
-                      final word = card.transcriptions[currentLang] ?? 'Unknown';
-                      final cardColor = card.hexColor != null 
-                          ? Color(int.parse(card.hexColor!)) 
-                          : Colors.white;
+                    // Calculate item dimensions to fill the space exactly
+                    final itemWidth =
+                        (constraints.maxWidth - totalHorizontalSpacing) /
+                        activeCrossCount;
+                    final itemHeight =
+                        (constraints.maxHeight - totalVerticalSpacing) /
+                        activeRowCount;
+                    final calculatedAspectRatio = itemWidth / itemHeight;
 
-                      return Padding(
-                        padding: const EdgeInsets.all(spacing),
-                        child: Hero(
-                          tag: 'card_${card.id}_$_zoomedCardIndex',
-                          child: FlipCard(
-                            key: ValueKey('flip_card_$_zoomedCardIndex'),
-                            controller: _cardControllers[_zoomedCardIndex!],
-                            onFlip: () {
-                              ref.read(audioServiceProvider).speak(word, currentLang);
-                            },
-                            onDoubleTap: () {
-                              setState(() => _zoomedCardIndex = null);
-                            },
-                            front: _CardBody(
-                              color: cardColor,
-                              child: card.imageUrl != null 
-                                ? Padding(
-                                    padding: const EdgeInsets.all(40),
-                                    child: card.imageUrl!.startsWith('http')
-                                        ? Image.network(
-                                            card.imageUrl!, 
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
-                                          )
-                                        : Image.asset(
-                                            card.imageUrl!, 
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
-                                          ),
-                                  )
-                                : (currentCat == CardCategoryType.letters || currentCat == CardCategoryType.numbers)
-                                  ? Center(child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(16.0),
-                                        child: Text(
-                                          currentCat == CardCategoryType.letters 
-                                            ? word.toUpperCase()
-                                            : card.id.replaceFirst('num_', ''), 
-                                          style: const TextStyle(fontSize: 400, fontWeight: FontWeight.bold, color: Colors.blueAccent)
-                                        ),
+                    return PageView.builder(
+                      controller: _pageController,
+                      itemCount: cardPages.length,
+                      itemBuilder: (context, pageIndex) {
+                        final pageCards = cardPages[pageIndex];
+                        final int firstGlobalIndex = (pageIndex * cardsPerPage)
+                            .toInt();
+                        final int lastGlobalIndex =
+                            firstGlobalIndex + pageCards.length - 1;
+
+                        // Check if the current page contains the zoomed card
+                        final bool isCardZoomedOnThisPage =
+                            _zoomedCardIndex != null &&
+                            _zoomedCardIndex! >= firstGlobalIndex &&
+                            _zoomedCardIndex! <= lastGlobalIndex;
+
+                        if (isCardZoomedOnThisPage) {
+                          final zoomedIndexInPage =
+                              _zoomedCardIndex! - firstGlobalIndex;
+                          final card = pageCards[zoomedIndexInPage];
+                          final word =
+                              card.transcriptions[currentLang] ?? 'Unknown';
+                          final cardColor = card.hexColor != null
+                              ? Color(int.parse(card.hexColor!))
+                              : Colors.white;
+
+                          return Padding(
+                            padding: const EdgeInsets.all(spacing),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                Positioned.fill(
+                                  child: Hero(
+                                    tag: 'card_${card.id}_$_zoomedCardIndex',
+                                    child: FlipCard(
+                                      key: ValueKey(
+                                        'flip_card_$_zoomedCardIndex',
                                       ),
-                                    ))
-                                  : const SizedBox.expand(),
-                            ),
-                            back: _CardBody(
-                              color: Colors.blueAccent.withValues(alpha: 0.1),
-                              child: Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16.0),
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Text(
-                                      word.toUpperCase(),
-                                      textAlign: TextAlign.center,
-                                      style: currentCat == CardCategoryType.letters
-                                          ? const TextStyle(
-                                              fontFamily: 'GreatVibes',
-                                              fontSize: 240,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.blueAccent,
-                                            )
-                                          : const TextStyle(
-                                              fontSize: 160,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.blueAccent,
-                                            ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-
-                    return GridView.builder(
-                      padding: const EdgeInsets.all(spacing),
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: activeCrossCount,
-                        crossAxisSpacing: spacing,
-                        mainAxisSpacing: spacing,
-                        childAspectRatio: calculatedAspectRatio,
-                      ),
-                      itemCount: pageCards.length,
-                      itemBuilder: (context, index) {
-                        final globalIndex = ((pageIndex * cardsPerPage) + index).toInt();
-                        final card = pageCards[index];
-                        final word = card.transcriptions[currentLang] ?? 'Unkown';
-                        final cardColor = card.hexColor != null 
-                            ? Color(int.parse(card.hexColor!)) 
-                            : Colors.white;
-
-                        return Hero(
-                          tag: 'card_${card.id}_$globalIndex',
-                          child: FlipCard(
-                            key: ValueKey('flip_card_$globalIndex'),
-                            controller: _cardControllers[globalIndex],
-                            onFlip: () {
-                              ref.read(audioServiceProvider).speak(word, currentLang);
-                            },
-                            onDoubleTap: () {
-                              setState(() => _zoomedCardIndex = globalIndex);
-                            },
-                            front: _CardBody(
-                              color: cardColor,
-                              child: card.imageUrl != null 
-                                ? Padding(
-                                    padding: const EdgeInsets.all(20),
-                                    child: card.imageUrl!.startsWith('http')
-                                        ? Image.network(
-                                            card.imageUrl!, 
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
-                                          )
-                                        : Image.asset(
-                                            card.imageUrl!, 
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (context, error, stackTrace) => const _ImageFallback(),
-                                          ),
-                                  )
-                                : (currentCat == CardCategoryType.letters || currentCat == CardCategoryType.numbers)
-                                  ? Center(child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(8.0),
-                                        child: Text(
-                                          currentCat == CardCategoryType.letters 
-                                            ? word.toUpperCase()
-                                            : card.id.replaceFirst('num_', ''), 
-                                          style: const TextStyle(fontSize: 240, fontWeight: FontWeight.bold, color: Colors.blueAccent)
-                                        ),
+                                      controller:
+                                          _cardControllers[_zoomedCardIndex!],
+                                      onFlip: () {
+                                        _onCardTapped(
+                                          _zoomedCardIndex!,
+                                          card,
+                                          word,
+                                          currentLang,
+                                        );
+                                      },
+                                      onDoubleTap: () {
+                                        setState(() => _zoomedCardIndex = null);
+                                      },
+                                      front: _CardBody(
+                                        color: cardColor,
+                                        child: card.imageUrl != null
+                                            ? Padding(
+                                                padding: const EdgeInsets.all(
+                                                  40,
+                                                ),
+                                                child:
+                                                    card.imageUrl!.startsWith(
+                                                      'http',
+                                                    )
+                                                    ? Image.network(
+                                                        card.imageUrl!,
+                                                        fit: BoxFit.contain,
+                                                        errorBuilder:
+                                                            (
+                                                              context,
+                                                              error,
+                                                              stackTrace,
+                                                            ) =>
+                                                                const _ImageFallback(),
+                                                      )
+                                                    : Image.asset(
+                                                        card.imageUrl!,
+                                                        fit: BoxFit.contain,
+                                                        errorBuilder:
+                                                            (
+                                                              context,
+                                                              error,
+                                                              stackTrace,
+                                                            ) =>
+                                                                const _ImageFallback(),
+                                                      ),
+                                              )
+                                            : (currentCat ==
+                                                      CardCategoryType
+                                                          .letters ||
+                                                  currentCat ==
+                                                      CardCategoryType.numbers)
+                                            ? Center(
+                                                child: FittedBox(
+                                                  fit: BoxFit.scaleDown,
+                                                  child: Padding(
+                                                    padding:
+                                                        const EdgeInsets.all(
+                                                          16.0,
+                                                        ),
+                                                    child: Text(
+                                                      currentCat ==
+                                                              CardCategoryType
+                                                                  .letters
+                                                          ? word.toUpperCase()
+                                                          : card.id
+                                                                .replaceFirst(
+                                                                  'num_',
+                                                                  '',
+                                                                ),
+                                                      style: const TextStyle(
+                                                        fontSize: 400,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color:
+                                                            Colors.blueAccent,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                            : const SizedBox.expand(),
                                       ),
-                                    ))
-                                  : const SizedBox.expand(),
-                            ),
-                            back: _CardBody(
-                              color: Colors.blueAccent.withValues(alpha: 0.1),
-                              child: Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Text(
-                                      word.toUpperCase(),
-                                      textAlign: TextAlign.center,
-                                      style: currentCat == CardCategoryType.letters
-                                          ? const TextStyle(
-                                              fontFamily: 'GreatVibes',
-                                              fontSize: 160,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.blueAccent,
-                                            )
-                                          : const TextStyle(
-                                              fontSize: 100,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.blueAccent,
-                                            ),
-                                    ),
-                                  ),
+                                      back: _CardBody(
+                                        color: Colors.blueAccent.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                        child: Center(
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(16.0),
+                                            child: FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              child: Text(
+                                                word.toUpperCase(),
+                                                textAlign: TextAlign.center,
+                                                style:
+                                                    currentCat ==
+                                                        CardCategoryType.letters
+                                                    ? const TextStyle(
+                                                        fontFamily:
+                                                            'GreatVibes',
+                                                        fontSize: 240,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color:
+                                                            Colors.blueAccent,
+                                                      )
+                                                    : const TextStyle(
+                                                        fontSize: 160,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color:
+                                                            Colors.blueAccent,
+                                                      ),
+                                              ), // Text
+                                            ), // FittedBox
+                                          ), // Padding
+                                        ), // Center
+                                      ), // _CardBody
+                                    ), // FlipCard
+                                  ), // Hero
+                                ), // Positioned.fill
+                                ConfettiWidget(
+                                  confettiController:
+                                      _confettiControllers[_zoomedCardIndex!],
+                                  blastDirection: -math.pi / 2, // Straight up
+                                  maxBlastForce: 20,
+                                  minBlastForce: 10,
+                                  emissionFrequency: 0.1,
+                                  numberOfParticles: 30,
+                                  gravity: 0.3,
                                 ),
-                              ),
+                              ],
                             ),
-                          ),
+                          );
+                        }
+
+                        return GridView.builder(
+                          padding: const EdgeInsets.all(spacing),
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: activeCrossCount,
+                                crossAxisSpacing: spacing,
+                                mainAxisSpacing: spacing,
+                                childAspectRatio: calculatedAspectRatio,
+                              ),
+                          itemCount: pageCards.length,
+                          itemBuilder: (context, index) {
+                            final globalIndex =
+                                ((pageIndex * cardsPerPage) + index).toInt();
+                            final card = pageCards[index];
+                            final word =
+                                card.transcriptions[currentLang] ?? 'Unkown';
+                            final cardColor = card.hexColor != null
+                                ? Color(int.parse(card.hexColor!))
+                                : Colors.white;
+
+                            return Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                Positioned.fill(
+                                  child: Hero(
+                                    tag: 'card_${card.id}_$globalIndex',
+                                    child: FlipCard(
+                                      key: ValueKey('flip_card_$globalIndex'),
+                                      controller: _cardControllers[globalIndex],
+                                      onFlip: () {
+                                        _onCardTapped(
+                                          globalIndex,
+                                          card,
+                                          word,
+                                          currentLang,
+                                        );
+                                      },
+                                      onDoubleTap: () {
+                                        setState(
+                                          () => _zoomedCardIndex = globalIndex,
+                                        );
+                                      },
+                                      front: _CardBody(
+                                        color: cardColor,
+                                        child: card.imageUrl != null
+                                            ? Padding(
+                                                padding: const EdgeInsets.all(
+                                                  20,
+                                                ),
+                                                child:
+                                                    card.imageUrl!.startsWith(
+                                                      'http',
+                                                    )
+                                                    ? Image.network(
+                                                        card.imageUrl!,
+                                                        fit: BoxFit.contain,
+                                                        errorBuilder:
+                                                            (
+                                                              context,
+                                                              error,
+                                                              stackTrace,
+                                                            ) =>
+                                                                const _ImageFallback(),
+                                                      )
+                                                    : Image.asset(
+                                                        card.imageUrl!,
+                                                        fit: BoxFit.contain,
+                                                        errorBuilder:
+                                                            (
+                                                              context,
+                                                              error,
+                                                              stackTrace,
+                                                            ) =>
+                                                                const _ImageFallback(),
+                                                      ),
+                                              )
+                                            : (currentCat ==
+                                                      CardCategoryType
+                                                          .letters ||
+                                                  currentCat ==
+                                                      CardCategoryType.numbers)
+                                            ? Center(
+                                                child: FittedBox(
+                                                  fit: BoxFit.scaleDown,
+                                                  child: Padding(
+                                                    padding:
+                                                        const EdgeInsets.all(
+                                                          8.0,
+                                                        ),
+                                                    child: Text(
+                                                      currentCat ==
+                                                              CardCategoryType
+                                                                  .letters
+                                                          ? word.toUpperCase()
+                                                          : card.id
+                                                                .replaceFirst(
+                                                                  'num_',
+                                                                  '',
+                                                                ),
+                                                      style: const TextStyle(
+                                                        fontSize: 240,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color:
+                                                            Colors.blueAccent,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                            : const SizedBox.expand(),
+                                      ),
+                                      back: _CardBody(
+                                        color: Colors.blueAccent.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                        child: Center(
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(8.0),
+                                            child: FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              child: Text(
+                                                word.toUpperCase(),
+                                                textAlign: TextAlign.center,
+                                                style:
+                                                    currentCat ==
+                                                        CardCategoryType.letters
+                                                    ? const TextStyle(
+                                                        fontFamily:
+                                                            'GreatVibes',
+                                                        fontSize: 160,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color:
+                                                            Colors.blueAccent,
+                                                      )
+                                                    : const TextStyle(
+                                                        fontSize: 100,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color:
+                                                            Colors.blueAccent,
+                                                      ),
+                                              ), // Text
+                                            ), // FittedBox
+                                          ), // Padding
+                                        ), // Center
+                                      ), // _CardBody
+                                    ), // FlipCard
+                                  ), // Hero
+                                ), // Positioned.fill
+                                ConfettiWidget(
+                                  confettiController:
+                                      _confettiControllers[globalIndex],
+                                  blastDirection: -math.pi / 2, // Straight up
+                                  maxBlastForce: 20,
+                                  minBlastForce: 10,
+                                  emissionFrequency: 0.1,
+                                  numberOfParticles: 30,
+                                  gravity: 0.3,
+                                ),
+                              ],
+                            );
+                          },
                         );
                       },
                     );
                   },
-                );
-              },
-            ),
-          ),
-          
-          if (cardPages.length > 1)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(cardPages.length, (index) {
-                    return AnimatedBuilder(
-                      animation: _pageController,
-                      builder: (context, child) {
-                        double selected = 0;
-                        if (_pageController.hasClients) {
-                          selected = (_pageController.page ?? 0);
-                        }
-                        final isCurrent = index == selected.round();
-                        return Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          width: isCurrent ? 12 : 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: isCurrent ? Colors.blueAccent : Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        );
-                      },
-                    );
-                  }),
                 ),
               ),
-            ),
-          ],
-        ),
+
+              if (cardPages.length > 1)
+                Padding(
+                  padding: const EdgeInsets.only(
+                    bottom: 20,
+                    left: 20,
+                    right: 20,
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(cardPages.length, (index) {
+                        return AnimatedBuilder(
+                          animation: _pageController,
+                          builder: (context, child) {
+                            double selected = 0;
+                            if (_pageController.hasClients) {
+                              selected = (_pageController.page ?? 0);
+                            }
+                            final isCurrent = index == selected.round();
+                            return Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              width: isCurrent ? 12 : 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: isCurrent
+                                    ? Colors.blueAccent
+                                    : Colors.grey.shade300,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            );
+                          },
+                        );
+                      }),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
       bottomNavigationBar: Container(
@@ -478,17 +779,53 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           children: [
             _BottomBarButton(
               icon: Icons.refresh_rounded,
-              label: currentLang == 'en-US' 
-                ? 'Flip All' 
-                : (currentLang == 'de-DE' ? 'Alles umdrehen' : (currentLang == 'fr-FR' ? 'Tout retourner' : (currentLang == 'uk-UA' ? 'Перевернути все' : 'Odwróć wszystkie'))),
+              label: currentLang == 'en-US'
+                  ? 'Flip All'
+                  : (currentLang == 'de-DE'
+                        ? 'Alles umdrehen'
+                        : (currentLang == 'fr-FR'
+                              ? 'Tout retourner'
+                              : (currentLang == 'uk-UA'
+                                    ? 'Перевернути все'
+                                    : 'Odwróć wszystkie'))),
               color: Colors.blueAccent, // Matched color
               onPressed: _resetAllCards,
             ),
+            // The new Quiz Button
+            GestureDetector(
+              onTap: _startQuiz,
+              child: Container(
+                width: 70,
+                height: 70,
+                decoration: BoxDecoration(
+                  color: Colors.blueAccent,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blueAccent.withValues(alpha: 0.4),
+                      blurRadius: 15,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.videogame_asset_rounded,
+                  color: Colors.white,
+                  size: 40,
+                ),
+              ),
+            ),
             _BottomBarButton(
               icon: Icons.shuffle_rounded,
-              label: currentLang == 'en-US' 
-                ? 'Shuffle' 
-                : (currentLang == 'de-DE' ? 'Mischen' : (currentLang == 'fr-FR' ? 'Mélanger' : (currentLang == 'uk-UA' ? 'Перемішати' : 'Pomieszaj'))),
+              label: currentLang == 'en-US'
+                  ? 'Shuffle'
+                  : (currentLang == 'de-DE'
+                        ? 'Mischen'
+                        : (currentLang == 'fr-FR'
+                              ? 'Mélanger'
+                              : (currentLang == 'uk-UA'
+                                    ? 'Перемішати'
+                                    : 'Pomieszaj'))),
               color: Colors.blueAccent,
               onPressed: _shuffleCards,
             ),
@@ -522,7 +859,11 @@ class _BottomBarButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 40), // Increased icon size since label is gone
+            Icon(
+              icon,
+              color: color,
+              size: 40,
+            ), // Increased icon size since label is gone
           ],
         ),
       ),
@@ -542,8 +883,8 @@ class _CardBody extends StatelessWidget {
         color: color,
         borderRadius: BorderRadius.circular(24),
         border: color == Colors.white || color == const Color(0xFFFFFFFF)
-          ? Border.all(color: Colors.black.withValues(alpha: 0.1))
-          : null,
+            ? Border.all(color: Colors.black.withValues(alpha: 0.1))
+            : null,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -575,10 +916,7 @@ class _LanguageSelector extends ConsumerWidget {
       initialValue: currentLang,
       onSelected: (val) => ref.read(languageProvider.notifier).state = val,
       child: Center(
-        child: Text(
-          flagFor(currentLang),
-          style: const TextStyle(fontSize: 24),
-        ),
+        child: Text(flagFor(currentLang), style: const TextStyle(fontSize: 24)),
       ),
       itemBuilder: (context) => [
         const PopupMenuItem(
@@ -589,7 +927,10 @@ class _LanguageSelector extends ConsumerWidget {
               children: [
                 Text('🇬🇧', style: TextStyle(fontSize: 18)),
                 SizedBox(width: 8),
-                Text('English', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(
+                  'English',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ),
@@ -602,7 +943,10 @@ class _LanguageSelector extends ConsumerWidget {
               children: [
                 Text('🇵🇱', style: TextStyle(fontSize: 18)),
                 SizedBox(width: 8),
-                Text('Polski', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(
+                  'Polski',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ),
@@ -615,7 +959,10 @@ class _LanguageSelector extends ConsumerWidget {
               children: [
                 Text('🇩🇪', style: TextStyle(fontSize: 18)),
                 SizedBox(width: 8),
-                Text('Deutsch', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(
+                  'Deutsch',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ),
@@ -628,7 +975,10 @@ class _LanguageSelector extends ConsumerWidget {
               children: [
                 Text('🇫🇷', style: TextStyle(fontSize: 18)),
                 SizedBox(width: 8),
-                Text('Français', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(
+                  'Français',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ),
@@ -641,7 +991,10 @@ class _LanguageSelector extends ConsumerWidget {
               children: [
                 Text('🇺🇦', style: TextStyle(fontSize: 18)),
                 SizedBox(width: 8),
-                Text('Українська', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(
+                  'Українська',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ),
@@ -650,6 +1003,7 @@ class _LanguageSelector extends ConsumerWidget {
     );
   }
 }
+
 class _ImageFallback extends StatelessWidget {
   const _ImageFallback();
 
@@ -670,12 +1024,14 @@ class _ImageFallback extends StatelessWidget {
     );
   }
 }
+
 class _MagicWandEffect extends StatefulWidget {
   @override
   State<_MagicWandEffect> createState() => _MagicWandEffectState();
 }
 
-class _MagicWandEffectState extends State<_MagicWandEffect> with SingleTickerProviderStateMixin {
+class _MagicWandEffectState extends State<_MagicWandEffect>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   final List<math.Point> _particles = [];
   final math.Random _random = math.Random();
@@ -690,10 +1046,7 @@ class _MagicWandEffectState extends State<_MagicWandEffect> with SingleTickerPro
 
     // Generate random star particles
     for (int i = 0; i < 40; i++) {
-      _particles.add(math.Point(
-        _random.nextDouble(),
-        _random.nextDouble(),
-      ));
+      _particles.add(math.Point(_random.nextDouble(), _random.nextDouble()));
     }
   }
 
@@ -729,8 +1082,9 @@ class _MagicPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     for (var p in particles) {
       final x = p.x * size.width;
-      final y = p.y * size.height - (progress * 200); // Faster rising for bubbles
-      
+      final y =
+          p.y * size.height - (progress * 200); // Faster rising for bubbles
+
       final bubbleSize = (math.sin(progress * 8 + p.x * 12) + 1.2) * 8 + 4;
       final opacity = (1 - progress).clamp(0.0, 1.0);
 
@@ -746,12 +1100,16 @@ class _MagicPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5;
       canvas.drawCircle(Offset(x, y), bubbleSize, borderPaint);
-      
+
       // Bubble highlight
       final highlightPaint = Paint()
         ..color = Colors.white.withValues(alpha: opacity * 0.6)
         ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(x - bubbleSize * 0.3, y - bubbleSize * 0.3), bubbleSize * 0.2, highlightPaint);
+      canvas.drawCircle(
+        Offset(x - bubbleSize * 0.3, y - bubbleSize * 0.3),
+        bubbleSize * 0.2,
+        highlightPaint,
+      );
     }
   }
 
