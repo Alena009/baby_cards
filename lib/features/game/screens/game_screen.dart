@@ -7,6 +7,7 @@ import 'package:confetti/confetti.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../providers/game_provider.dart';
 import '../widgets/flip_card.dart';
+import '../widgets/jumping_ball_animation.dart';
 
 class GameScreen extends ConsumerStatefulWidget {
   const GameScreen({super.key});
@@ -27,6 +28,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   bool _isWandActive = false;
   final List<GlobalKey> _categoryKeys = [];
   int? _zoomedCardIndex;
+  final Set<String> _tappedCardIds = {};
 
   // ----- Quiz State -----
   String? _quizTargetCardId;
@@ -56,6 +58,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 
   void _resetAllCards() {
+    _tappedCardIds.clear();
     if (!_isWandActive) {
       ref.read(audioServiceProvider).playEffect('whoosh');
     }
@@ -118,17 +121,17 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     )[0]; // simple code: en, pl, de, fr, uk
 
     final questionFiles = <String, String>{
-      'en': 'where_is.wav',
-      'pl': 'gdzie_jest.wav',
-      'de': 'wo_ist.wav',
-      'fr': 'où_est.wav',
-      'uk': 'де.wav',
+      'en': 'find.wav',
+      'pl': 'znajdź.wav',
+      'de': 'finde.wav',
+      'fr': 'trouve.wav',
+      'uk': 'знайди.wav',
     };
 
-    final questionFilename = questionFiles[langPrefix] ?? 'where_is.wav';
+    final questionFilename = questionFiles[langPrefix] ?? 'find.wav';
 
     try {
-      // Play "Where is"
+      // Play "Find"
       await _quizAudioPlayer.play(
         AssetSource('audio/$langPrefix/$questionFilename'),
       );
@@ -150,8 +153,17 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     String word,
     String currentLang,
   ) {
+    // Record card tap for completion tracking
+    final wasAlreadyTapped = _tappedCardIds.contains(card.id);
+    _tappedCardIds.add(card.id);
+
     // Standard Flip logic
     _cardControllers[globalIndex].flip();
+
+    // Check for category completion
+    if (!wasAlreadyTapped && _tappedCardIds.length == _shuffledCards.length) {
+      _triggerCategoryCompletion();
+    }
 
     // If not in quiz mode, just read the word
     if (_quizTargetCardId == null) {
@@ -172,6 +184,49 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       // Wrong!
       _quizAudioPlayer.play(AssetSource('audio/wrong.mp3'));
     }
+  }
+
+  void _triggerCategoryCompletion() {
+    // 1. Play "ping" sound
+    ref
+        .read(audioServiceProvider)
+        .playEffect('magic'); // TODO: replace with ping
+
+    // 2. Clear tapped state so they can do it again
+    _tappedCardIds.clear();
+
+    // 3. Show Jumping Ball Animation
+    _showJumpingBallAnimation();
+  }
+
+  void _showJumpingBallAnimation() {
+    final currentCat = ref.read(currentCategoryProvider);
+
+    final overlay = Overlay.of(context);
+    late OverlayEntry overlayEntry;
+
+    overlayEntry = OverlayEntry(
+      builder: (context) {
+        return Positioned.fill(
+          child: SafeArea(
+            child: JumpingBallAnimation(
+              icon: '⭐',
+              onComplete: () {
+                overlayEntry.remove();
+                if (!mounted) return;
+                // Increment counter
+                ref.read(categoryCompletionProvider.notifier).update((state) {
+                  final current = state[currentCat] ?? 0;
+                  return {...state, currentCat: current + 1};
+                });
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(overlayEntry);
   }
 
   void _scrollToCategory(int index) {
@@ -195,6 +250,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final categories = ref.watch(categoriesProvider);
     final currentCat = ref.watch(currentCategoryProvider);
     final isMuted = ref.watch(isMutedProvider);
+    final completionCounts = ref.watch(categoryCompletionProvider);
 
     // Sync audio service state
     ref.read(audioServiceProvider).isMuted = isMuted;
@@ -264,8 +320,38 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           ),
           leading: Transform.scale(scale: 1.5, child: _LanguageSelector()),
           actions: [
+            if (completionCounts.isNotEmpty)
+              Builder(
+                builder: (context) {
+                  final totalStars = completionCounts.values.fold<int>(0, (sum, count) => sum + count);
+                  if (totalStars <= 0) return const SizedBox.shrink();
+                  return Container(
+                    margin: const EdgeInsets.only(top: 18, bottom: 18, right: 32),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blueAccent.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blueAccent, width: 2),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '⭐ $totalStars',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blueAccent,
+                          height: 1.0,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             Padding(
-              padding: const EdgeInsets.only(right: 8.0, top: 8.0),
+              padding: const EdgeInsets.only(right: 16.0, top: 8.0),
               child: _MuteButton(),
             ),
           ],

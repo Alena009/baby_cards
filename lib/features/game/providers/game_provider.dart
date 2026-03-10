@@ -8,6 +8,9 @@ final currentCategoryProvider = StateProvider<CardCategoryType>(
   (ref) => CardCategoryType.colors,
 );
 final isMutedProvider = StateProvider<bool>((ref) => false);
+final categoryCompletionProvider = StateProvider<Map<CardCategoryType, int>>(
+  (ref) => {},
+);
 
 String _enNumberWord(int n) {
   if (n >= 1000000000) return "One Billion";
