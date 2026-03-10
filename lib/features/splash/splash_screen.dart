@@ -52,69 +52,85 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         alignment: Alignment.center,
         children: [
           // Jumping Letters and Numbers
-          ...List.generate(15, (index) {
-            final letter = _letters[index % _letters.length];
-            final color = _colors[index % _colors.length];
-            
-            return AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                final screenWidth = MediaQuery.of(context).size.width;
-                final screenHeight = MediaQuery.of(context).size.height;
-                final isSmall = screenWidth < 600;
+          Builder(
+            builder: (context) {
+              final screenWidth = MediaQuery.of(context).size.width;
+              final screenHeight = MediaQuery.of(context).size.height;
+              final isSmall = screenWidth < 600;
 
-                // Calculate base position in grid
-                final column = index % 3;
-                final row = index ~/ 3;
-                
-                // Adaptive spacing
-                final spacingX = isSmall ? 100.0 : 130.0;
-                final spacingY = isSmall ? 110.0 : 150.0;
+              // Calculate how many columns/rows we want
+              final columns = isSmall ? 4 : 8;
+              final rows = isSmall ? 5 : 6;
+              final totalItems = columns * rows;
 
-                final baseX = (column - 1) * spacingX;
-                final baseY = (row - 2) * spacingY;
-                
-                // Animation progress
-                final progress = (_controller.value + (index * 0.15)) % 1.0;
-                final jumpHeight = (isSmall ? 60.0 : 80.0) * (progress < 0.5 ? progress * 2 : (1 - progress) * 2);
-                
-                return Align(
-                  alignment: Alignment.center,
-                  child: Transform.translate(
-                    offset: Offset(baseX, baseY - jumpHeight),
-                    child: Transform.rotate(
-                      angle: progress * 0.4 - 0.2,
-                      child: Container(
-                        width: isSmall ? 50 : 60,
-                        height: isSmall ? 50 : 60,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.95),
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: color.withValues(alpha: 0.2),
-                              blurRadius: 10,
-                              offset: const Offset(0, 5),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Text(
-                            letter,
-                            style: TextStyle(
-                              fontSize: isSmall ? 28 : 34,
-                              fontWeight: FontWeight.bold,
-                              color: color,
+              // Calculate spacing to fill screen
+              final spacingX = screenWidth / columns;
+              final spacingY = screenHeight / rows;
+
+              return Stack(
+                alignment: Alignment.center,
+                children: List.generate(totalItems, (index) {
+                  final letter = _letters[index % _letters.length];
+                  final color = _colors[index % _colors.length];
+                  
+                  // Calculate base position in grid
+                  final column = index % columns;
+                  final row = index ~/ columns;
+                  
+                  // Position relative to center
+                  final baseX = (column - (columns - 1) / 2) * spacingX;
+                  final baseY = (row - (rows - 1) / 2) * spacingY;
+                  
+                  return AnimatedBuilder(
+                    animation: _controller,
+                    builder: (context, child) {
+                      // Animation progress (staggered by index)
+                      final progress = (_controller.value + (index * 0.15)) % 1.0;
+                      
+                      // Jump height
+                      final jumpHeight = (isSmall ? 60.0 : 80.0) * 
+                                         (progress < 0.5 ? progress * 2 : (1 - progress) * 2);
+                      
+                      return Align(
+                        alignment: Alignment.center,
+                        child: Transform.translate(
+                          offset: Offset(baseX, baseY - jumpHeight),
+                          child: Transform.rotate(
+                            angle: progress * 0.4 - 0.2,
+                            child: Container(
+                              width: isSmall ? 50 : 60,
+                              height: isSmall ? 50 : 60,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.95),
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: color.withValues(alpha: 0.2),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 5),
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: Text(
+                                  letter,
+                                  style: TextStyle(
+                                    fontSize: isSmall ? 28 : 34,
+                                    fontWeight: FontWeight.bold,
+                                    color: color,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            );
-          }),
+                      );
+                    },
+                  );
+                }),
+              );
+            },
+          ),
           
           // Center Content
           Column(
