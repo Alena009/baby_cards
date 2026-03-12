@@ -57,10 +57,12 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               final screenWidth = MediaQuery.of(context).size.width;
               final screenHeight = MediaQuery.of(context).size.height;
               final isSmall = screenWidth < 600;
+              final isLandscape = screenWidth > screenHeight;
 
               // Calculate how many columns/rows we want
-              final columns = isSmall ? 4 : 8;
-              final rows = isSmall ? 5 : 6;
+              // Reduce density to prevent looking overcrowded, especially in landscape
+              final columns = isLandscape ? (isSmall ? 8 : 10) : (isSmall ? 5 : 8);
+              final rows = isLandscape ? (isSmall ? 4 : 6) : (isSmall ? 7 : 10);
               final totalItems = columns * rows;
 
               // Calculate spacing to fill screen
@@ -77,9 +79,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   final column = index % columns;
                   final row = index ~/ columns;
                   
+                  // Honeycomb offset for odd rows to prevent direct vertical overlap
+                  final isOddRow = row % 2 != 0;
+                  final offsetX = isOddRow ? (spacingX / 2) : 0.0;
+                  
                   // Position relative to center
-                  final baseX = (column - (columns - 1) / 2) * spacingX;
+                  final baseX = (column - (columns - 1) / 2) * spacingX + offsetX;
                   final baseY = (row - (rows - 1) / 2) * spacingY;
+                  
+                  final squareSize = isSmall ? 50.0 : 60.0;
                   
                   return AnimatedBuilder(
                     animation: _controller,
@@ -87,14 +95,22 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                       // Animation progress (staggered by index)
                       final progress = (_controller.value + (index * 0.15)) % 1.0;
                       
-                      // Jump height
-                      final jumpHeight = (isSmall ? 60.0 : 80.0) * 
-                                         (progress < 0.5 ? progress * 2 : (1 - progress) * 2);
+                      // Calculate dynamic jump height to prevent overlapping
+                      // They jump into the gaps of the staggered row above, so we allow a bit more height
+                      final availableSpace = spacingY * 1.2; 
+                      final idealJumpHeight = isSmall ? 50.0 : 70.0;
+                      final jumpMax = idealJumpHeight < availableSpace ? idealJumpHeight : availableSpace;
                       
+                      final jumpHeight = jumpMax * (progress < 0.5 ? progress * 2 : (1 - progress) * 2);
+                      
+                      // Add a small horizontal bounce to simulate "bouncing off each other/avoiding"
+                      final swayDirection = (index % 3 == 0) ? 1.0 : (index % 3 == 1 ? -1.0 : 0.0);
+                      final swayX = swayDirection * (isSmall ? 10.0 : 15.0) * (progress < 0.5 ? progress * 2 : (1 - progress) * 2);
+
                       return Align(
                         alignment: Alignment.center,
                         child: Transform.translate(
-                          offset: Offset(baseX, baseY - jumpHeight),
+                          offset: Offset(baseX + swayX, baseY - jumpHeight),
                           child: Transform.rotate(
                             angle: progress * 0.4 - 0.2,
                             child: Container(

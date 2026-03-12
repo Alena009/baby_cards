@@ -130,18 +130,29 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
     final questionFilename = questionFiles[langPrefix] ?? 'find.wav';
 
+    final isMuted = ref.read(isMutedProvider);
+
     try {
-      // Play "Find"
-      await _quizAudioPlayer.play(
-        AssetSource('audio/$langPrefix/$questionFilename'),
-      );
+      // Play "Find" (only if not muted)
+      if (!isMuted) {
+        await _quizAudioPlayer.play(
+          AssetSource('audio/$langPrefix/$questionFilename'),
+        );
+      }
 
       // Wait for completion, then play the target word
-      _quizAudioPlayer.onPlayerComplete.first.then((_) {
-        if (!mounted || _quizTargetCardId != targetCard.id) return;
+      if (!isMuted) {
+        _quizAudioPlayer.onPlayerComplete.first.then((_) {
+          if (!mounted || _quizTargetCardId != targetCard.id) return;
+          final word = targetCard.transcriptions[currentLang] ?? '';
+          ref.read(audioServiceProvider).speak(word, currentLang);
+        });
+      } else {
+        // If muted, we still "speak" the word because AudioService handles the mute internally,
+        // but since onPlayerComplete won't fire for AssetSource if we didn't play it, we just call it directly
         final word = targetCard.transcriptions[currentLang] ?? '';
         ref.read(audioServiceProvider).speak(word, currentLang);
-      });
+      }
     } catch (e) {
       debugPrint("Error playing quiz audio: $e");
     }
@@ -171,10 +182,12 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       return;
     }
 
+    final isMuted = ref.read(isMutedProvider);
+
     // Quiz mode logic
     if (card.id == _quizTargetCardId) {
       // Correct!
-      _quizAudioPlayer.play(AssetSource('audio/correct.mp3'));
+      if (!isMuted) _quizAudioPlayer.play(AssetSource('audio/correct.mp3'));
       _confettiControllers[globalIndex].play();
       setState(() {
         // Reset target so they can ask again
@@ -182,7 +195,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       });
     } else {
       // Wrong!
-      _quizAudioPlayer.play(AssetSource('audio/wrong.mp3'));
+      if (!isMuted) _quizAudioPlayer.play(AssetSource('audio/wrong.mp3'));
     }
   }
 
@@ -325,34 +338,26 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                 builder: (context) {
                   final totalStars = completionCounts.values.fold<int>(0, (sum, count) => sum + count);
                   if (totalStars <= 0) return const SizedBox.shrink();
-                  return Container(
-                    margin: const EdgeInsets.only(top: 18, bottom: 18, right: 32),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.blueAccent.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.blueAccent, width: 2),
-                    ),
-                    child: Center(
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 16),
                       child: Text(
                         '⭐ $totalStars',
                         style: const TextStyle(
-                          fontSize: 20,
+                          fontSize: 24,
                           fontWeight: FontWeight.bold,
                           color: Colors.blueAccent,
-                          height: 1.0,
                         ),
                       ),
                     ),
                   );
                 },
               ),
-            Padding(
-              padding: const EdgeInsets.only(right: 16.0, top: 8.0),
-              child: _MuteButton(),
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 16.0),
+                child: _MuteButton(),
+              ),
             ),
           ],
         ),
